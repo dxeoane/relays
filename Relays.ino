@@ -133,7 +133,8 @@ void loop() {
       if (strcmp(command, "relayOn") == 0) relayOn(params);
       else if (strcmp(command, "relayOff") == 0) relayOff(params);
       else if (strcmp(command, "pulse") == 0) pulse(params);
-      else if (strcmp(command, "relay?") == 0) getRelayState(params);
+      else if (strcmp(command, "toggle") == 0) toggle(params);
+      else if (strcmp(command, "state?") == 0) getRelayState(params);
     }
 
     line = strtok_r(NULL, "\n\r", &lasts);
@@ -174,6 +175,17 @@ void relayOff(const char *params) {
   int relay;
   if (sscanf(params, "%d", &relay) == 1 && relay >= 0 && relay < RELAYS) {
     setRelayState(relay, LOW);
+  }
+}
+
+void toggle(const char *params) {
+  int relay;
+  if (sscanf(params, "%d", &relay) == 1 && relay >= 0 && relay < RELAYS) {
+    if (Relays[relay].state){    
+      setRelayState(relay, LOW);
+    } else {
+      setRelayState(relay, HIGH);
+    }
   }
 }
 
