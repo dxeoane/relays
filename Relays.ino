@@ -1,15 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+#include <PubSubClient.h>
 
 // Aqui van los parámetros que no se deben subir al repo de github (ssid, password, etc ...)
 #include "secret.h"
-
-#define RELAY0 D7 // GPIO13
-#define RELAY1 D6 // GPIO12
-#define RELAY2 D5 // GPIO14
-#define RELAY3 D0 // GPIO16 // On at boot
-
-#define RELAYS 4
 
 typedef struct {
   int pin;
@@ -17,12 +11,37 @@ typedef struct {
   unsigned long timer; 
 } Relay;
 
-Relay Relays[RELAYS] = {
-  {RELAY0, 0, 0},
-  {RELAY1, 0, 0},
-  {RELAY2, 0, 0},
-  {RELAY3, 0, 0}
-};
+#define HW622
+
+#ifdef HW622
+  #define RELAY0 D2 // Pin 4
+  #define RELAYS 1 // 1 Solo rele en la placa
+
+  Relay Relays[RELAYS] = {
+    {RELAY0, 0, 0}
+  };
+#else
+  #define RELAY0 D7 // GPIO13
+  #define RELAY1 D6 // GPIO12
+  #define RELAY2 D5 // GPIO14
+  #define RELAY3 D0 // GPIO16 // Está On durante el arranque
+  #define RELAYS 4  // 4 Reles en la placa
+
+  Relay Relays[RELAYS] = {
+    {RELAY0, 0, 0},
+    {RELAY1, 0, 0},
+    {RELAY2, 0, 0},
+    {RELAY3, 0, 0}
+  };
+#endif
+
+#define MQTT_ENABLED
+
+#ifdef MQTT_ENABLED
+  #define MQTT_MAX_BUFFER_SIZE 64
+  WiFiClient wifiClient;
+  PubSubClient mqttClient(wifiClient);
+#endif  
 
 #define PORT 8888
 unsigned long lastCheckMillis = 0;
@@ -47,7 +66,7 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(STASSID, STAPSK);
   int retries = 0;
-  Serial.print("Conectando ");
+  Serial.print("Conectando ...");
   while (WiFi.status() != WL_CONNECTED && retries < 100) {
     Serial.print(".");
     retries++;
@@ -66,6 +85,21 @@ void setup() {
 
     Udp.begin(PORT);
     Serial.printf("Puerto: UDP/%d\n", PORT);
+
+    #ifdef MQTT_ENABLED
+      Serial.println("Conectando con el servidor MQTT ...");
+      mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+      mqttClient.setCallback(mqttReceive);
+      String mqttClientId = "Relay-";
+      mqttClientId += String(random(0xffff), HEX);
+      if (mqttClient.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
+          Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
+          if (mqttClient.subscribe(MQTT_TOPIC)) {
+            Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
+          }
+      }
+    #endif 
+    
   } else {
     String macAddress = WiFi.softAPmacAddress();
     String lastTwoBytes = macAddress.substring(macAddress.length() - 5);
@@ -98,21 +132,28 @@ void loop() {
     if (WiFi.status() != WL_CONNECTED) return;
   }
 
+  #ifdef MQTT_ENABLED
+    mqttClient.loop();
+  #endif
+
   // Recibimos un paquete UDP
   int size = Udp.parsePacket();
   if (!size) return;
 
   // Si acabamos de recibir un paquete UDP damos por supuesto que la WiFi funciona bien
   lastCheckMillis = millis();
+  buffer[Udp.read(buffer, UDP_TX_PACKET_MAX_SIZE)] = 0; 
+  parseBuffer(buffer, Udp.remoteIP().toString().c_str());
+  sendACK();
+}
 
-  buffer[Udp.read(buffer, UDP_TX_PACKET_MAX_SIZE)] = 0;
-
+void parseBuffer(char buffer[], const char src[]) {
   // Leemos los comandos linea a linea
   char *lasts;
   char *line = strtok_r(buffer, "\n\r", &lasts);
   while (line) {
 
-    Serial.printf("Rcv (%s): %s\n", Udp.remoteIP().toString().c_str(), line);
+    Serial.printf("Rcv (%s): %s\n", src, line);
 
     char *command = strtok(line, " ");
     if (!command) {
@@ -134,13 +175,10 @@ void loop() {
       else if (strcmp(command, "relayOff") == 0) relayOff(params);
       else if (strcmp(command, "pulse") == 0) pulse(params);
       else if (strcmp(command, "toggle") == 0) toggle(params);
-      else if (strcmp(command, "state?") == 0) getRelayState(params);
     }
 
     line = strtok_r(NULL, "\n\r", &lasts);
   }
-
-  sendACK();
 }
 
 void sendACK() {
@@ -212,20 +250,6 @@ void pulse(const char *params) {
   }
 }
 
-void getRelayState(const char *params) {
-  int relay;
-  if (sscanf(params, "%d", &relay) == 1 && relay >= 0 && relay < RELAYS) {
-    char buffer[16];
-
-    unsigned long remainingTime = (Relays[relay].timer > millis()) ? (Relays[relay].timer - millis()) : 0;  
-    snprintf(buffer, sizeof(buffer), "%d,%lu\n", Relays[relay].state, remainingTime);
-
-    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-    Udp.write(buffer);
-    Udp.endPacket();
-  }
-}
-
 WiFiClient client;
 
 void checkWiFi() {
@@ -237,6 +261,11 @@ void checkWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     if (client.connect("192.168.10.1", 80)) {
       client.stop();
+      #ifdef MQTT_ENABLED      
+        if (!mqttClient.connected()) {
+          mqttReconnect();
+        }
+      #endif
       return;
     }
     client.stop();
@@ -266,3 +295,32 @@ void checkWiFi() {
 
   lastCheckMillis = now;
 }
+
+#ifdef MQTT_ENABLED
+void mqttReceive(char* topic, byte* payload, unsigned int length) {
+  static char buffer[MQTT_MAX_BUFFER_SIZE + 1];  
+
+  unsigned int i;
+  for (i = 0; i < MQTT_MAX_BUFFER_SIZE && i < length && payload[i]; i++)
+      buffer[i] = (char) payload[i];
+  buffer[i] = '\0';
+  
+  parseBuffer(buffer, topic);  
+}
+
+void mqttReconnect() {
+  if (!mqttClient.connected()) {
+    Serial.println("Volviendo a conectar con el servidor MQTT ...");
+    String mqttClientId = "Teletype-";
+    mqttClientId += String(random(0xffff), HEX);
+    if (mqttClient.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
+        Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
+        if (mqttClient.subscribe(MQTT_TOPIC)) {
+          Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
+        }
+    } else {
+      Serial.println("Error al conectar con el servidor MQTT");
+    }
+  }
+}
+#endif
