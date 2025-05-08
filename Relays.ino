@@ -105,13 +105,14 @@ void setup() {
     String lastTwoBytes = macAddress.substring(macAddress.length() - 5);
     lastTwoBytes.replace(":", "");
     String ssid = "Relays_" + lastTwoBytes;
+    String password = AP_PASSWORD;
 
     IPAddress local(192, 168, 33, 1);
     IPAddress gateway(192, 168, 33, 1);
     IPAddress subnet(255, 255, 255, 0);
 
     WiFi.softAPConfig(local, gateway, subnet);
-    if (WiFi.softAP(ssid)) {
+    if (WiFi.softAP(ssid, password)) {
       Serial.printf("AP SSID: %s\n", ssid.c_str());
       Serial.printf("IP: %s\n", WiFi.softAPIP().toString().c_str());
       Udp.begin(PORT);
@@ -259,7 +260,7 @@ void checkWiFi() {
   lastCheckMillis = now;
 
   if (WiFi.status() == WL_CONNECTED) {
-    if (client.connect("192.168.10.1", 80)) {
+    if (client.connect(WiFi.gatewayIP(), 80)) {
       client.stop();
       #ifdef MQTT_ENABLED      
         if (!mqttClient.connected()) {
