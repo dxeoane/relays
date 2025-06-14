@@ -8,40 +8,40 @@
 typedef struct {
   int pin;
   int state;
-  unsigned long timer; 
+  unsigned long timer;
 } Relay;
 
-#define HW622
+// #define HW622
 
 #ifdef HW622
-  #define RELAY0 D2 // Pin 4
-  #define RELAYS 1 // 1 Solo rele en la placa
+#define RELAY0 D2  // Pin 4
+#define RELAYS 1   // 1 Solo rele en la placa
 
-  Relay Relays[RELAYS] = {
-    {RELAY0, 0, 0}
-  };
+Relay Relays[RELAYS] = {
+  { RELAY0, 0, 0 }
+};
 #else
-  #define RELAY0 D7 // GPIO13
-  #define RELAY1 D6 // GPIO12
-  #define RELAY2 D5 // GPIO14
-  #define RELAY3 D0 // GPIO16 // Está On durante el arranque
-  #define RELAYS 4  // 4 Reles en la placa
+#define RELAY0 D7  // GPIO13
+#define RELAY1 D6  // GPIO12
+#define RELAY2 D5  // GPIO14
+#define RELAY3 D0  // GPIO16 // Está On durante el arranque
+#define RELAYS 4   // 4 Reles en la placa
 
-  Relay Relays[RELAYS] = {
-    {RELAY0, 0, 0},
-    {RELAY1, 0, 0},
-    {RELAY2, 0, 0},
-    {RELAY3, 0, 0}
-  };
+Relay Relays[RELAYS] = {
+  { RELAY0, 0, 0 },
+  { RELAY1, 0, 0 },
+  { RELAY2, 0, 0 },
+  { RELAY3, 0, 0 }
+};
 #endif
 
 #define MQTT_ENABLED
 
 #ifdef MQTT_ENABLED
-  #define MQTT_MAX_BUFFER_SIZE 64
-  WiFiClient wifiClient;
-  PubSubClient mqttClient(wifiClient);
-#endif  
+#define MQTT_MAX_BUFFER_SIZE 64
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+#endif
 
 #define PORT 8888
 unsigned long lastCheckMillis = 0;
@@ -86,20 +86,20 @@ void setup() {
     Udp.begin(PORT);
     Serial.printf("Puerto: UDP/%d\n", PORT);
 
-    #ifdef MQTT_ENABLED
-      Serial.println("Conectando con el servidor MQTT ...");
-      mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
-      mqttClient.setCallback(mqttReceive);
-      String mqttClientId = "Relay-";
-      mqttClientId += String(random(0xffff), HEX);
-      if (mqttClient.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
-          Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
-          if (mqttClient.subscribe(MQTT_TOPIC)) {
-            Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
-          }
+#ifdef MQTT_ENABLED
+    Serial.println("Conectando con el servidor MQTT ...");
+    mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+    mqttClient.setCallback(mqttReceive);
+    String mqttClientId = "Relay-";
+    mqttClientId += String(random(0xffff), HEX);
+    if (mqttClient.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
+      Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
+      if (mqttClient.subscribe(MQTT_TOPIC)) {
+        Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
       }
-    #endif 
-    
+    }
+#endif
+
   } else {
     String macAddress = WiFi.softAPmacAddress();
     String lastTwoBytes = macAddress.substring(macAddress.length() - 5);
@@ -133,9 +133,9 @@ void loop() {
     if (WiFi.status() != WL_CONNECTED) return;
   }
 
-  #ifdef MQTT_ENABLED
-    mqttClient.loop();
-  #endif
+#ifdef MQTT_ENABLED
+  mqttClient.loop();
+#endif
 
   // Recibimos un paquete UDP
   int size = Udp.parsePacket();
@@ -143,7 +143,7 @@ void loop() {
 
   // Si acabamos de recibir un paquete UDP damos por supuesto que la WiFi funciona bien
   lastCheckMillis = millis();
-  buffer[Udp.read(buffer, UDP_TX_PACKET_MAX_SIZE)] = 0; 
+  buffer[Udp.read(buffer, UDP_TX_PACKET_MAX_SIZE)] = 0;
   parseBuffer(buffer, Udp.remoteIP().toString().c_str());
   sendACK();
 }
@@ -220,7 +220,7 @@ void relayOff(const char *params) {
 void toggle(const char *params) {
   int relay;
   if (sscanf(params, "%d", &relay) == 1 && relay >= 0 && relay < RELAYS) {
-    if (Relays[relay].state){    
+    if (Relays[relay].state) {
       setRelayState(relay, LOW);
     } else {
       setRelayState(relay, HIGH);
@@ -262,11 +262,11 @@ void checkWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     if (client.connect(WiFi.gatewayIP(), 80)) {
       client.stop();
-      #ifdef MQTT_ENABLED      
-        if (!mqttClient.connected()) {
-          mqttReconnect();
-        }
-      #endif
+#ifdef MQTT_ENABLED
+      if (!mqttClient.connected()) {
+        mqttReconnect();
+      }
+#endif
       return;
     }
     client.stop();
@@ -298,15 +298,15 @@ void checkWiFi() {
 }
 
 #ifdef MQTT_ENABLED
-void mqttReceive(char* topic, byte* payload, unsigned int length) {
-  static char buffer[MQTT_MAX_BUFFER_SIZE + 1];  
+void mqttReceive(char *topic, byte *payload, unsigned int length) {
+  static char buffer[MQTT_MAX_BUFFER_SIZE + 1];
 
   unsigned int i;
   for (i = 0; i < MQTT_MAX_BUFFER_SIZE && i < length && payload[i]; i++)
-      buffer[i] = (char) payload[i];
+    buffer[i] = (char)payload[i];
   buffer[i] = '\0';
-  
-  parseBuffer(buffer, topic);  
+
+  parseBuffer(buffer, topic);
 }
 
 void mqttReconnect() {
@@ -315,10 +315,10 @@ void mqttReconnect() {
     String mqttClientId = "Teletype-";
     mqttClientId += String(random(0xffff), HEX);
     if (mqttClient.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
-        Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
-        if (mqttClient.subscribe(MQTT_TOPIC)) {
-          Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
-        }
+      Serial.printf("MQTT Server: %s\n", MQTT_SERVER);
+      if (mqttClient.subscribe(MQTT_TOPIC)) {
+        Serial.printf("MQTT Topic: %s\n", MQTT_TOPIC);
+      }
     } else {
       Serial.println("Error al conectar con el servidor MQTT");
     }
